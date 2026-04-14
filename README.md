@@ -43,3 +43,25 @@ We follow the CRISP-DM framework:
 ---
 
 ## 📁 Project Structure
+
+data/ # dataset
+notebooks/ # Jupyter notebooks
+dashboard/ # Streamlit app
+reports/ # project reports & slides
+
+
+---
+
+## 🚀 How to Run
+```bash
+pip install -r requirements.txt
+jupyter notebook
+streamlit run dashboard/app.py
+👨‍💻 Author
+
+Omar Abdulaal
+Data Science Student
+
+📌 Status
+
+Phase 1 ✅ Completed
