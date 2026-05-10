@@ -10,6 +10,7 @@ import streamlit as st
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
+PREPARED_DATA_PATH = PROJECT_ROOT / "outputs" / "prepared_hourly_energy.csv"
 
 from src.data_preparation import (  # noqa: E402
     DEFAULT_DATA_PATH,
@@ -38,6 +39,13 @@ st.set_page_config(
 
 @st.cache_data(show_spinner="Preparing energy data...")
 def load_prepared_data(use_full_data: bool, sample_rows: int) -> pd.DataFrame:
+    if PREPARED_DATA_PATH.exists():
+        df = pd.read_csv(PREPARED_DATA_PATH, parse_dates=["datetime"])
+        if not use_full_data:
+            estimated_hours = max(int(sample_rows / 60), 24)
+            df = df.head(min(estimated_hours, len(df)))
+        return reduce_memory_usage(df)
+
     nrows = None if use_full_data else sample_rows
     df = prepare_energy_dataset(
         data_path=DEFAULT_DATA_PATH,
@@ -91,8 +99,8 @@ with st.sidebar:
     sample_rows = st.slider(
         "Development sample rows",
         min_value=50000,
-        max_value=500000,
-        value=300000,
+        max_value=300000,
+        value=100000,
         step=50000,
         disabled=use_full_data,
     )
@@ -133,18 +141,23 @@ metric_cols[1].metric("Average Power", f"{summary['mean_global_active_power']:.3
 metric_cols[2].metric("Peak Power", f"{summary['max_global_active_power']:.3f} kW")
 metric_cols[3].metric("Missing Values", f"{summary['missing_values']:,}")
 
-tabs = st.tabs(
-    [
+view_options = [
         "Overview",
         "Clustering",
         "Regression",
         "Classification",
         "Anomaly Detection",
         "Business Insights",
-    ]
+]
+
+selected_view = st.radio(
+    "Dashboard section",
+    options=view_options,
+    horizontal=True,
+    label_visibility="collapsed",
 )
 
-with tabs[0]:
+if selected_view == "Overview":
     st.subheader("Consumption Overview")
     st.plotly_chart(
         px.line(
@@ -187,13 +200,12 @@ with tabs[0]:
         width="stretch",
     )
 
-clustering_metrics, clustered_df, regression_metrics, classification_metrics, report_text, anomaly_df, pca_summary = run_dashboard_models(
-    filtered_df,
-    feature_columns,
-    forecast_feature_columns,
-)
-
-with tabs[1]:
+elif selected_view == "Clustering":
+    clustering_metrics, clustered_df, _, _, _, _, _ = run_dashboard_models(
+        filtered_df,
+        feature_columns,
+        forecast_feature_columns,
+    )
     st.subheader("Clustering: Usage Behavior Segments")
     st.write(
         "The PCA plot shows the same clustering result in two reduced dimensions. "
@@ -226,7 +238,12 @@ with tabs[1]:
         width="stretch",
     )
 
-with tabs[2]:
+elif selected_view == "Regression":
+    _, _, regression_metrics, _, _, _, _ = run_dashboard_models(
+        filtered_df,
+        feature_columns,
+        forecast_feature_columns,
+    )
     st.subheader("Regression: Consumption Prediction")
     st.dataframe(regression_metrics.sort_values("rmse"), width="stretch")
     st.plotly_chart(
@@ -240,12 +257,22 @@ with tabs[2]:
         width="stretch",
     )
 
-with tabs[3]:
+elif selected_view == "Classification":
+    _, _, _, classification_metrics, report_text, _, _ = run_dashboard_models(
+        filtered_df,
+        feature_columns,
+        forecast_feature_columns,
+    )
     st.subheader("Classification: High vs Normal Consumption")
     st.dataframe(classification_metrics.sort_values("accuracy", ascending=False), width="stretch")
     st.text(report_text)
 
-with tabs[4]:
+elif selected_view == "Anomaly Detection":
+    _, _, _, _, _, anomaly_df, _ = run_dashboard_models(
+        filtered_df,
+        feature_columns,
+        forecast_feature_columns,
+    )
     st.subheader("Anomaly Detection")
     st.plotly_chart(
         px.scatter(
@@ -267,7 +294,12 @@ with tabs[4]:
         width="stretch",
     )
 
-with tabs[5]:
+elif selected_view == "Business Insights":
+    _, _, _, _, _, anomaly_df, pca_summary = run_dashboard_models(
+        filtered_df,
+        feature_columns,
+        forecast_feature_columns,
+    )
     st.subheader("Business Insights")
     peak_hour = (
         filtered_df.groupby("hour")["global_active_power"]
