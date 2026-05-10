@@ -18,8 +18,9 @@ The project is motivated by the current energy crisis, especially in Egypt, wher
 ## 📊 Dataset
 - **Name:** Household Electric Power Consumption
 - **Source:** UCI / Kaggle
-- **Records:** 2M+
+- **Records:** 2M+ in the original public dataset
 - **Features:** 9 (time-series + power metrics)
+- **Current working CSV:** The local file in `DataSet/` is analyzed as-is. The notebook and dashboard display its actual date coverage automatically.
 
 ---
 
