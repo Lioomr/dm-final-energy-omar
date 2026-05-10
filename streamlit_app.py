@@ -1,8 +1,8 @@
-"""Streamlit Community Cloud entrypoint.
+"""Streamlit Community Cloud entrypoint."""
 
-The main dashboard code lives in dashboard/app.py. This small root file makes
-deployment simpler because Streamlit Cloud can use streamlit_app.py directly.
-"""
+from pathlib import Path
+import runpy
 
-import dashboard.app  # noqa: F401
 
+APP_PATH = Path(__file__).resolve().parent / "dashboard" / "app.py"
+runpy.run_path(str(APP_PATH), run_name="__main__")
