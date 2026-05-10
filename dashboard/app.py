@@ -20,14 +20,6 @@ from src.data_preparation import (  # noqa: E402
     reduce_memory_usage,
     summarize_dataset,
 )
-from src.modeling import (  # noqa: E402
-    detect_anomalies,
-    pca_feature_summary,
-    run_clustering_baselines,
-    summarize_clusters,
-    train_classification_baselines,
-    train_regression_baselines,
-)
 
 
 st.set_page_config(
@@ -61,6 +53,14 @@ def run_dashboard_models(
     feature_columns: list[str],
     forecast_feature_columns: list[str],
 ):
+    from src.modeling import (  # noqa: WPS433
+        detect_anomalies,
+        pca_feature_summary,
+        run_clustering_baselines,
+        train_classification_baselines,
+        train_regression_baselines,
+    )
+
     clustering_metrics, clustered_df = run_clustering_baselines(
         df,
         features=feature_columns,
@@ -88,6 +88,70 @@ def run_dashboard_models(
         n_components=3,
     )
     return clustering_metrics, clustered_df, regression_metrics, classification_metrics, report_text, anomaly_df, pca_summary
+
+
+@st.cache_data(show_spinner="Running clustering...")
+def run_clustering_section(df: pd.DataFrame, feature_columns: list[str]):
+    from src.modeling import run_clustering_baselines, summarize_clusters  # noqa: WPS433
+
+    clustering_metrics, clustered_df = run_clustering_baselines(
+        df,
+        features=feature_columns,
+        max_rows=8000,
+    )
+    cluster_profile = summarize_clusters(clustered_df)
+    return clustering_metrics, clustered_df, cluster_profile
+
+
+@st.cache_data(show_spinner="Running regression...")
+def run_regression_section(
+    df: pd.DataFrame,
+    forecast_feature_columns: list[str],
+):
+    from src.modeling import train_regression_baselines  # noqa: WPS433
+
+    regression_metrics, _ = train_regression_baselines(
+        df,
+        features=forecast_feature_columns,
+        target="global_active_power",
+    )
+    return regression_metrics
+
+
+@st.cache_data(show_spinner="Running classification...")
+def run_classification_section(df: pd.DataFrame, feature_columns: list[str]):
+    from src.modeling import train_classification_baselines  # noqa: WPS433
+
+    classification_metrics, _, report_text = train_classification_baselines(
+        df,
+        features=feature_columns,
+        target="high_consumption",
+    )
+    return classification_metrics, report_text
+
+
+@st.cache_data(show_spinner="Running anomaly detection...")
+def run_anomaly_section(df: pd.DataFrame, feature_columns: list[str]):
+    from src.modeling import detect_anomalies  # noqa: WPS433
+
+    return detect_anomalies(
+        df,
+        features=feature_columns,
+        contamination=0.01,
+        max_rows=20000,
+    )
+
+
+@st.cache_data(show_spinner="Running PCA summary...")
+def run_pca_section(df: pd.DataFrame, feature_columns: list[str]):
+    from src.modeling import pca_feature_summary  # noqa: WPS433
+
+    pca_summary, _ = pca_feature_summary(
+        df,
+        features=feature_columns,
+        n_components=3,
+    )
+    return pca_summary
 
 
 st.title("Smart Energy Consumption Analytics")
@@ -201,10 +265,9 @@ if selected_view == "Overview":
     )
 
 elif selected_view == "Clustering":
-    clustering_metrics, clustered_df, _, _, _, _, _ = run_dashboard_models(
+    clustering_metrics, clustered_df, cluster_profile = run_clustering_section(
         filtered_df,
         feature_columns,
-        forecast_feature_columns,
     )
     st.subheader("Clustering: Usage Behavior Segments")
     st.write(
@@ -213,7 +276,6 @@ elif selected_view == "Clustering":
     )
     st.dataframe(clustering_metrics, width="stretch")
 
-    cluster_profile = summarize_clusters(clustered_df)
     st.markdown("**K-Means Cluster Profile**")
     st.dataframe(cluster_profile, width="stretch")
 
@@ -239,9 +301,8 @@ elif selected_view == "Clustering":
     )
 
 elif selected_view == "Regression":
-    _, _, regression_metrics, _, _, _, _ = run_dashboard_models(
+    regression_metrics = run_regression_section(
         filtered_df,
-        feature_columns,
         forecast_feature_columns,
     )
     st.subheader("Regression: Consumption Prediction")
@@ -258,20 +319,18 @@ elif selected_view == "Regression":
     )
 
 elif selected_view == "Classification":
-    _, _, _, classification_metrics, report_text, _, _ = run_dashboard_models(
+    classification_metrics, report_text = run_classification_section(
         filtered_df,
         feature_columns,
-        forecast_feature_columns,
     )
     st.subheader("Classification: High vs Normal Consumption")
     st.dataframe(classification_metrics.sort_values("accuracy", ascending=False), width="stretch")
     st.text(report_text)
 
 elif selected_view == "Anomaly Detection":
-    _, _, _, _, _, anomaly_df, _ = run_dashboard_models(
+    anomaly_df = run_anomaly_section(
         filtered_df,
         feature_columns,
-        forecast_feature_columns,
     )
     st.subheader("Anomaly Detection")
     st.plotly_chart(
@@ -295,11 +354,8 @@ elif selected_view == "Anomaly Detection":
     )
 
 elif selected_view == "Business Insights":
-    _, _, _, _, _, anomaly_df, pca_summary = run_dashboard_models(
-        filtered_df,
-        feature_columns,
-        forecast_feature_columns,
-    )
+    anomaly_df = run_anomaly_section(filtered_df, feature_columns)
+    pca_summary = run_pca_section(filtered_df, feature_columns)
     st.subheader("Business Insights")
     peak_hour = (
         filtered_df.groupby("hour")["global_active_power"]
