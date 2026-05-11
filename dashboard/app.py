@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
+import plotly.io as pio
 import streamlit as st
+
+pio.templates.default = "plotly_dark"
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -24,9 +27,81 @@ from src.data_preparation import (  # noqa: E402
 
 st.set_page_config(
     page_title="Smart Energy Analytics",
-    page_icon="SE",
+    page_icon="⚡",
     layout="wide",
 )
+
+st.markdown("""
+<style>
+/* ── Metric cards ─────────────────────────────────── */
+[data-testid="metric-container"] {
+    background: linear-gradient(135deg, #1F2937 0%, #111827 100%);
+    border: 1px solid #06B6D4;
+    border-radius: 12px;
+    padding: 18px 22px;
+    box-shadow: 0 0 18px rgba(6, 182, 212, 0.18);
+}
+[data-testid="metric-container"] label {
+    color: #9CA3AF !important;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+[data-testid="stMetricValue"] {
+    color: #06B6D4 !important;
+    font-size: 1.9rem !important;
+    font-weight: 700 !important;
+}
+
+/* ── Section subheaders ───────────────────────────── */
+h2, h3 {
+    border-left: 4px solid #06B6D4;
+    padding-left: 12px;
+    margin-top: 2rem !important;
+}
+
+/* ── Sidebar ──────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background-color: #1F2937 !important;
+    border-right: 1px solid #374151;
+}
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] label {
+    color: #F9FAFB !important;
+}
+
+/* ── Info / warning boxes ─────────────────────────── */
+[data-testid="stAlert"] {
+    border-radius: 10px;
+}
+
+/* ── Radio nav bar ────────────────────────────────── */
+[data-testid="stRadio"] > div {
+    gap: 8px;
+}
+[data-testid="stRadio"] label {
+    background: #1F2937;
+    border: 1px solid #374151;
+    border-radius: 8px;
+    padding: 6px 16px;
+    font-weight: 500;
+    transition: border-color 0.2s;
+}
+[data-testid="stRadio"] label:hover {
+    border-color: #06B6D4;
+}
+
+/* ── Dataframes ───────────────────────────────────── */
+[data-testid="stDataFrameResizable"] {
+    border: 1px solid #374151;
+    border-radius: 8px;
+}
+
+/* ── Dividers ─────────────────────────────────────── */
+hr { border-color: #374151; }
+</style>
+""", unsafe_allow_html=True)
 
 
 @st.cache_data(show_spinner="Preparing energy data...")
@@ -54,7 +129,6 @@ def run_dashboard_models(
     forecast_feature_columns: list[str],
 ):
     from src.modeling import (  # noqa: WPS433
-        detect_anomalies,
         pca_feature_summary,
         run_clustering_baselines,
         train_classification_baselines,
@@ -76,23 +150,17 @@ def run_dashboard_models(
         features=feature_columns,
         target="high_consumption",
     )
-    anomaly_df = detect_anomalies(
-        df,
-        features=feature_columns,
-        contamination=0.01,
-        max_rows=50000,
-    )
     pca_summary, _ = pca_feature_summary(
         df,
         features=feature_columns,
         n_components=3,
     )
-    return clustering_metrics, clustered_df, regression_metrics, classification_metrics, report_text, anomaly_df, pca_summary
+    return clustering_metrics, clustered_df, regression_metrics, classification_metrics, report_text, pca_summary
 
 
 @st.cache_data(show_spinner="Running clustering...")
 def run_clustering_section(df: pd.DataFrame, feature_columns: list[str]):
-    from src.modeling import run_clustering_baselines, summarize_clusters  # noqa: WPS433
+    from src.modeling import cluster_submetering_breakdown, run_clustering_baselines, summarize_clusters  # noqa: WPS433
 
     clustering_metrics, clustered_df = run_clustering_baselines(
         df,
@@ -100,7 +168,8 @@ def run_clustering_section(df: pd.DataFrame, feature_columns: list[str]):
         max_rows=8000,
     )
     cluster_profile = summarize_clusters(clustered_df)
-    return clustering_metrics, clustered_df, cluster_profile
+    submetering_df = cluster_submetering_breakdown(clustered_df)
+    return clustering_metrics, clustered_df, cluster_profile, submetering_df
 
 
 @st.cache_data(show_spinner="Running regression...")
@@ -108,38 +177,28 @@ def run_regression_section(
     df: pd.DataFrame,
     forecast_feature_columns: list[str],
 ):
-    from src.modeling import train_regression_baselines  # noqa: WPS433
+    from src.modeling import regression_predictions, train_regression_baselines  # noqa: WPS433
 
     regression_metrics, _ = train_regression_baselines(
         df,
         features=forecast_feature_columns,
         target="global_active_power",
     )
-    return regression_metrics
+    pred_df = regression_predictions(df, features=forecast_feature_columns)
+    return regression_metrics, pred_df
 
 
 @st.cache_data(show_spinner="Running classification...")
 def run_classification_section(df: pd.DataFrame, feature_columns: list[str]):
-    from src.modeling import train_classification_baselines  # noqa: WPS433
+    from src.modeling import rf_feature_importance, train_classification_baselines  # noqa: WPS433
 
-    classification_metrics, _, report_text = train_classification_baselines(
+    classification_metrics, models, report_text = train_classification_baselines(
         df,
         features=feature_columns,
         target="high_consumption",
     )
-    return classification_metrics, report_text
-
-
-@st.cache_data(show_spinner="Running anomaly detection...")
-def run_anomaly_section(df: pd.DataFrame, feature_columns: list[str]):
-    from src.modeling import detect_anomalies  # noqa: WPS433
-
-    return detect_anomalies(
-        df,
-        features=feature_columns,
-        contamination=0.01,
-        max_rows=20000,
-    )
+    feature_importance_df = rf_feature_importance(models, feature_columns)
+    return classification_metrics, report_text, feature_importance_df
 
 
 @st.cache_data(show_spinner="Running PCA summary...")
@@ -154,8 +213,18 @@ def run_pca_section(df: pd.DataFrame, feature_columns: list[str]):
     return pca_summary
 
 
-st.title("Smart Energy Consumption Analytics")
-st.caption("Household power consumption analysis, prediction, clustering, classification, and anomaly detection.")
+st.markdown("""
+<div style="background: linear-gradient(90deg, #0284C7 0%, #06B6D4 60%, #0891B2 100%);
+            padding: 22px 32px; border-radius: 14px; margin-bottom: 8px;">
+    <h1 style="color: white; margin: 0; font-size: 2rem; letter-spacing: -0.5px;">
+        ⚡ Smart Energy Consumption Analytics
+    </h1>
+    <p style="color: rgba(255,255,255,0.82); margin: 8px 0 0 0; font-size: 0.95rem;">
+        Household power consumption &nbsp;·&nbsp; Clustering &nbsp;·&nbsp;
+        Regression &nbsp;·&nbsp; Classification
+    </p>
+</div>
+""", unsafe_allow_html=True)
 
 with st.sidebar:
     st.header("Global Filters")
@@ -210,7 +279,6 @@ view_options = [
         "Clustering",
         "Regression",
         "Classification",
-        "Anomaly Detection",
         "Business Insights",
 ]
 
@@ -264,8 +332,28 @@ if selected_view == "Overview":
         width="stretch",
     )
 
+    st.subheader("Weekday vs Weekend Consumption")
+    wk_df = filtered_df.copy()
+    wk_df["day_type"] = wk_df["is_weekend"].map({0: "Weekday", 1: "Weekend"})
+    st.plotly_chart(
+        px.box(
+            wk_df,
+            x="hour",
+            y="global_active_power",
+            color="day_type",
+            title="Power Distribution by Hour: Weekday vs Weekend",
+            labels={
+                "global_active_power": "Global active power (kW)",
+                "hour": "Hour of day",
+                "day_type": "Day type",
+            },
+            color_discrete_map={"Weekday": "#1f77b4", "Weekend": "#ff7f0e"},
+        ),
+        width="stretch",
+    )
+
 elif selected_view == "Clustering":
-    clustering_metrics, clustered_df, cluster_profile = run_clustering_section(
+    clustering_metrics, clustered_df, cluster_profile, submetering_df = run_clustering_section(
         filtered_df,
         feature_columns,
     )
@@ -300,8 +388,80 @@ elif selected_view == "Clustering":
         width="stretch",
     )
 
+    st.subheader("Sub-metering Breakdown by Cluster")
+    st.write("Average energy (Wh/hour) per appliance category in each cluster — shows *what* is being used in each usage pattern.")
+    st.plotly_chart(
+        px.bar(
+            submetering_df,
+            x="kmeans_cluster",
+            y="avg_wh",
+            color="source",
+            barmode="group",
+            title="Average Sub-metering Energy by Cluster",
+            labels={"avg_wh": "Average energy (Wh)", "kmeans_cluster": "Cluster", "source": "Metering source"},
+        ),
+        width="stretch",
+    )
+
+    st.subheader("Cluster Temporal Heatmap")
+    st.write("Average power by hour and day of week per cluster — reveals *when* each usage pattern occurs.")
+    import plotly.graph_objects as go  # noqa: WPS433
+    from plotly.subplots import make_subplots  # noqa: WPS433
+
+    def _cluster_label(row):
+        if row["avg_power_kw"] == cluster_profile["avg_power_kw"].max():
+            return "Peak Usage"
+        elif row["weekend_share"] >= 0.5:
+            return "Low Usage — Weekend"
+        else:
+            return "Low Usage — Weekday"
+
+    cluster_label_map = {
+        int(row["kmeans_cluster"]): _cluster_label(row)
+        for _, row in cluster_profile.iterrows()
+    }
+
+    label_cols = st.columns(len(cluster_label_map))
+    label_icons = {"Peak Usage": "🔴", "Low Usage — Weekend": "🟡", "Low Usage — Weekday": "🔵"}
+    for col, (cid, label) in zip(label_cols, sorted(cluster_label_map.items())):
+        col.info(f"{label_icons.get(label, '')} **Cluster {cid}** — {label}")
+
+    day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    clusters = sorted(clustered_df["kmeans_cluster"].unique())
+    heatmap_fig = make_subplots(
+        rows=1,
+        cols=len(clusters),
+        subplot_titles=[f"Cluster {c} — {cluster_label_map.get(c, '')}" for c in clusters],
+        shared_yaxes=True,
+    )
+    for col_idx, cluster_id in enumerate(clusters, start=1):
+        subset = clustered_df[clustered_df["kmeans_cluster"] == cluster_id]
+        pivot = (
+            subset.groupby(["hour", "day_of_week"])["global_active_power"]
+            .mean()
+            .unstack(level="day_of_week")
+            .reindex(index=range(24), columns=range(7), fill_value=0)
+        )
+        heatmap_fig.add_trace(
+            go.Heatmap(
+                z=pivot.values,
+                x=day_labels,
+                y=list(range(24)),
+                colorscale="YlOrRd",
+                showscale=(col_idx == len(clusters)),
+                colorbar={"title": "Avg kW"} if col_idx == len(clusters) else None,
+            ),
+            row=1,
+            col=col_idx,
+        )
+    heatmap_fig.update_layout(
+        height=450,
+        yaxis={"autorange": "reversed", "title": "Hour of day"},
+    )
+    st.plotly_chart(heatmap_fig, width="stretch")
+
 elif selected_view == "Regression":
-    regression_metrics = run_regression_section(
+    regression_metrics, pred_df = run_regression_section(
         filtered_df,
         forecast_feature_columns,
     )
@@ -318,8 +478,23 @@ elif selected_view == "Regression":
         width="stretch",
     )
 
+    st.subheader("Actual vs Predicted — Polynomial Ridge (Test Set)")
+    st.write("Gaps between lines show where the model struggles: winter evening peaks and unusual weekends.")
+    st.plotly_chart(
+        px.line(
+            pred_df.melt(id_vars="datetime", value_vars=["actual", "predicted"],
+                         var_name="series", value_name="power_kw"),
+            x="datetime",
+            y="power_kw",
+            color="series",
+            labels={"power_kw": "Global active power (kW)", "datetime": "Date", "series": ""},
+            color_discrete_map={"actual": "#1f77b4", "predicted": "#ff7f0e"},
+        ).update_traces(opacity=0.8),
+        width="stretch",
+    )
+
 elif selected_view == "Classification":
-    classification_metrics, report_text = run_classification_section(
+    classification_metrics, report_text, feature_importance_df = run_classification_section(
         filtered_df,
         feature_columns,
     )
@@ -327,34 +502,22 @@ elif selected_view == "Classification":
     st.dataframe(classification_metrics.sort_values("accuracy", ascending=False), width="stretch")
     st.text(report_text)
 
-elif selected_view == "Anomaly Detection":
-    anomaly_df = run_anomaly_section(
-        filtered_df,
-        feature_columns,
-    )
-    st.subheader("Anomaly Detection")
-    st.plotly_chart(
-        px.scatter(
-            anomaly_df,
-            x="datetime",
-            y="global_active_power",
-            color="anomaly_label",
-            labels={
-                "global_active_power": "Global active power (kW)",
-                "anomaly_label": "Anomaly",
-            },
-        ),
-        width="stretch",
-    )
-    st.dataframe(
-        anomaly_df.sort_values("anomaly_score").head(20)[
-            ["datetime", "global_active_power", "global_intensity", "anomaly_score"]
-        ],
-        width="stretch",
-    )
+    if not feature_importance_df.empty:
+        st.subheader("Random Forest — Feature Importance")
+        st.write("Which features most strongly predict whether an hour is high consumption?")
+        st.plotly_chart(
+            px.bar(
+                feature_importance_df,
+                x="importance",
+                y="feature",
+                orientation="h",
+                title="Feature Importance for High Consumption Classification",
+                labels={"importance": "Importance score", "feature": "Feature"},
+            ).update_layout(yaxis={"categoryorder": "total ascending"}),
+            width="stretch",
+        )
 
 elif selected_view == "Business Insights":
-    anomaly_df = run_anomaly_section(filtered_df, feature_columns)
     pca_summary = run_pca_section(filtered_df, feature_columns)
     st.subheader("Business Insights")
     peak_hour = (
@@ -364,18 +527,15 @@ elif selected_view == "Business Insights":
         .index[0]
     )
     high_share = filtered_df["high_consumption"].mean() * 100
-    anomaly_share = anomaly_df["anomaly_label"].mean() * 100
 
-    insight_cols = st.columns(3)
+    insight_cols = st.columns(2)
     insight_cols[0].metric("Peak Average Hour", f"{peak_hour}:00")
     insight_cols[1].metric("High Consumption Share", f"{high_share:.1f}%")
-    insight_cols[2].metric("Detected Anomaly Share", f"{anomaly_share:.1f}%")
 
     st.write(
-        "The strongest dashboard story is to identify peak hours, inspect which metering "
-        "sources contribute most, then use anomaly detection to flag unusual periods for "
-        "review. These results can support practical recommendations such as shifting "
-        "heavy appliance usage away from peak periods and investigating repeated spikes."
+        "The strongest dashboard story is to identify peak hours and inspect which metering "
+        "sources contribute most. These results can support practical recommendations such as "
+        "shifting heavy appliance usage away from peak periods."
     )
 
     st.dataframe(pca_summary, width="stretch")
