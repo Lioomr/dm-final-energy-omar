@@ -235,6 +235,26 @@ def summarize_clusters(
     return profile.reset_index()
 
 
+def cluster_submetering_breakdown(
+    clustered_df: pd.DataFrame,
+    cluster_column: str = "kmeans_cluster",
+) -> pd.DataFrame:
+    """Return average Wh per appliance category per cluster in long format."""
+    source_columns = {
+        "sub_metering_1": "Kitchen",
+        "sub_metering_2": "Laundry",
+        "sub_metering_3": "HVAC / Water Heater",
+        "unmetered_energy_wh": "Other / Unmetered",
+    }
+    available = {col: label for col, label in source_columns.items() if col in clustered_df.columns}
+    rows = []
+    for col, label in available.items():
+        means = clustered_df.groupby(cluster_column)[col].mean()
+        for cluster_id, avg in means.items():
+            rows.append({"kmeans_cluster": cluster_id, "source": label, "avg_wh": round(avg, 3)})
+    return pd.DataFrame(rows)
+
+
 def detect_anomalies(
     df: pd.DataFrame,
     features: list[str],
